@@ -1,0 +1,32 @@
+{
+  "id": "./",
+  "name": "MIRAI Trading Lab",
+  "short_name": "MIRAI",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "description": "Laboratorio de trading: estrategias, pruebas a ciegas y piloto.",
+  "display": "standalone",
+  "background_color": "#08090b",
+  "theme_color": "#08090b",
+  "icons": [
+    {
+      "src": "icono-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icono-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
