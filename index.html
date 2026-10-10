@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#08090b">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MIRAI">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icono-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>MIRAI Trading Lab</title>
+<style>
+:root { --fondo:#08090b; --panel:#101216; --borde:rgba(255,255,255,.1); --tinta:#f3f5f8; --tenue:#8a93a3; --acento:#5eead4; --mal:#ff7a6b; }
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:var(--fondo); color:var(--tinta); }
+body { font:15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
+/* Mismo tamaño y posición que la intro de la app: el paso de una a otra no se nota. */
+.logo-carga { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; }
+.logo-carga svg { width:76px; height:76px; color:var(--tinta); overflow:visible; }
+.giro { transform-box:fill-box; transform-origin:center; }
+.anima .giro { animation:girar .9s linear infinite, estirar 1.8s ease-in-out infinite; }
+@keyframes girar { to { transform:rotate(360deg); } }
+@keyframes estirar { 0%, 100% { stroke-dasharray:14 86; } 50% { stroke-dasharray:48 52; } }
+.abajo { position:fixed; left:0; right:0; top:calc(50% + 62px); display:flex; flex-direction:column; align-items:center; padding:0 16px; }
+form { width:100%; max-width:340px; display:flex; flex-direction:column; gap:10px; }
+input[type=password] { width:100%; padding:13px 16px; border-radius:14px; border:1px solid var(--borde); background:var(--panel); color:inherit; font:inherit; outline:none; }
+input[type=password]:focus { border-color:var(--acento); box-shadow:0 0 0 3px rgba(94,234,212,.15); }
+label { display:flex; gap:8px; align-items:center; color:var(--tenue); font-size:13px; }
+button { padding:13px; border-radius:999px; border:0; background:var(--tinta); color:var(--fondo); font:inherit; font-weight:600; cursor:pointer; }
+button:disabled { opacity:.5; }
+.error { color:var(--mal); font-size:13px; min-height:18px; text-align:center; }
+.pie { color:var(--tenue); font-size:11.5px; text-align:center; margin-top:14px; opacity:.8; min-height:18px; }
+.oculto { display:none; }
+</style>
+</head>
+<body>
+<div class="logo-carga" id="logo">
+  <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".14"/><circle class="giro" cx="16" cy="16" r="14.5" fill="none" stroke="#5eead4" stroke-width="1.8" stroke-linecap="round" pathLength="100" stroke-dasharray="22 78"/><path d="M7.5 21.5L11 12L14.5 17.5L18.5 11L21.2 17L24.5 11.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24.5" cy="11.5" r="2.2" fill="#5eead4"/></svg>
+</div>
+<div class="abajo">
+  <form id="formulario" class="oculto" autocomplete="off">
+    <input id="clave" type="password" placeholder="Contraseña" aria-label="Contraseña" autocomplete="current-password" required>
+    <label><input id="recordar" type="checkbox" checked> Recordar en este dispositivo</label>
+    <button id="entrar" type="submit">Entrar</button>
+    <div class="error" id="error" role="alert"></div>
+  </form>
+  <div class="pie" id="pie"></div>
+</div>
+<script>
+"use strict";
+const VERSION = "2026-10-10T06:15:43+00:00";
+const LLAVE = "mirai.llave";
+const INICIO = Date.now();
+const b64 = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const aB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const leer = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const guardar = (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } };
+const espera = (ms) => new Promise(r => setTimeout(r, ms));
+/* Animación del logo mientras carga (se respeta el ajuste de animaciones de la app). */
+const ajusteAnim = leer("mirai.animaciones") || "auto";
+const conMovimiento = ajusteAnim === "siempre" || (ajusteAnim === "auto" && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches));
+if (conMovimiento) document.getElementById("logo").classList.add("anima");
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+async function paquete() {
+  const r = await fetch("datos.enc.json", { cache: "no-store" });
+  if (!r.ok) throw new Error("sin datos");
+  return r.json();
+}
+async function llaveDesdeClave(clave, p) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(clave), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64(p.sal), iterations: p.iteraciones, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, true, ["decrypt"]);
+}
+async function abrir(llave, p) {
+  const claro = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(p.iv) }, llave, b64(p.datos));
+  const html = new TextDecoder().decode(claro);
+  if (conMovimiento) await espera(Math.max(0, 700 - (Date.now() - INICIO)));  // al menos una vuelta del indicador
+  try { sessionStorage.setItem("mirai.intro", "1"); } catch (e) { /* la app hará la intro completa */ }  // el logo ya se dibujó aquí
+  document.open(); document.write(html); document.close();
+  datosDeInstalacion();
+}
+/* La app descifrada sustituye la página: se le vuelven a poner los datos de instalación
+   (sin ellos el navegador no ofrece "Instalar" ni usa el icono al añadirla a la pantalla de inicio). */
+function datosDeInstalacion() {
+  const cabeza = document.head || document.getElementsByTagName("head")[0];
+  const poner = (etiqueta, attrs) => { const e = document.createElement(etiqueta); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); cabeza.appendChild(e); };
+  poner("link", { rel: "manifest", href: "manifest.webmanifest" });
+  poner("link", { rel: "icon", href: "icono-192.png" });
+  poner("link", { rel: "apple-touch-icon", href: "apple-touch-icon.png" });
+  poner("meta", { name: "apple-mobile-web-app-capable", content: "yes" });
+  poner("meta", { name: "mobile-web-app-capable", content: "yes" });
+  poner("meta", { name: "apple-mobile-web-app-title", content: "MIRAI" });
+  poner("meta", { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" });
+}
+(async function () {
+  const form = document.getElementById("formulario"), pie = document.getElementById("pie"), error = document.getElementById("error");
+  let p;
+  try { p = await paquete(); } catch (e) { pie.textContent = "Sin conexión y sin copia guardada. Abre la app con internet una vez."; return; }
+  const guardada = leer(LLAVE);
+  if (guardada) {
+    try {
+      const llave = await crypto.subtle.importKey("raw", b64(guardada), { name: "AES-GCM" }, true, ["decrypt"]);
+      await abrir(llave, p);
+      return;
+    } catch (e) { guardar(LLAVE, null); }  // la contraseña cambió: se vuelve a pedir
+  }
+  pie.textContent = "Datos del " + new Date(p.generado_utc).toLocaleString("es-ES") + " · cifrados de extremo a extremo";
+  form.classList.remove("oculto");
+  document.getElementById("clave").focus();
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const clave = document.getElementById("clave").value, boton = document.getElementById("entrar");
+    if (!clave) { error.textContent = "Escribe la contraseña."; return; }
+    error.textContent = ""; boton.disabled = true; boton.textContent = "Abriendo…";
+    try {
+      const llave = await llaveDesdeClave(clave, p);
+      const exportada = aB64(await crypto.subtle.exportKey("raw", llave));
+      await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(p.iv) }, llave, b64(p.datos));  // comprueba antes de guardar
+      if (document.getElementById("recordar").checked) guardar(LLAVE, exportada);
+      await abrir(llave, p);
+    } catch (e) {
+      error.textContent = "Contraseña incorrecta."; boton.disabled = false; boton.textContent = "Entrar";
+    }
+  });
+})();
+</script>
+</body>
+</html>
